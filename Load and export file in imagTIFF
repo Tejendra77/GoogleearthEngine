@@ -1,0 +1,32 @@
+var rgbVis = {
+  min: 0, 
+  max: 3000,
+  bands: ['B4','B3','B2']
+}
+var BAJHANG_boundary = Districts.filter(ee.Filter.eq ('DISTRICT','BAJHANG'));
+var roi = ee.FeatureCollection(BAJHANG_boundary).geometry();
+var BAJHANG_sentinel_2 = sentinel_2.filter(ee.Filter.bounds(roi))
+    .filter(ee.Filter.date('2024-01-01','2024-05-01'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',10));
+
+var BAJHANG_sentinel_2_median = BAJHANG_sentinel_2.median();
+//Map.addLayer(BAJHANG_sentinel_2_median, rgbVis);
+//Map.addLayer(BAJHANG_boundary, {color:'red'});
+
+var BAJHANG_sentinel_2_clip = BAJHANG_sentinel_2_median.clip(roi);
+Map.addLayer(BAJHANG_sentinel_2_clip, rgbVis);
+
+//Exporting data 
+Export.image.toDrive({
+  image: BAJHANG_sentinel_2_clip,
+  description: 'Export to drive',
+  scale: 10,
+  region: roi,})
+ 
+//Exporting data 
+//Export.image.toDrive({
+ //image:BAJHANG_sentinel_2_clip,
+ //description: 'Export to drive',
+ //scale: 10
+// region: roi,
+ // })
