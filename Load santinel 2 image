@@ -1,0 +1,6 @@
+var data = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+var image = data.filterDate('2022-01-01', '2023-01-01')
+var dataset = data.filterBounds(geometry).select(['B2','B3','B4'])
+              .first(dataset);
+print(dataset);
+Map.addLayer(dataset);
