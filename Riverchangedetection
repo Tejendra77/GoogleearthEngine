@@ -1,0 +1,181 @@
+Map.addLayer(river)
+//water change detection and river change course analysis 
+//using google earth engine tracking 30 years of Bajhang River 
+
+var rgbVis = {
+  "opacity": 1,
+  "bands": ["red", "green", "blue"],
+  "min": 0.9552439820766448,
+  "max": 1.5189559686183929,
+  "gamma": 1
+};
+
+var ndVis = {
+  "opacity": 1,
+  "bands": ["nd"],
+  "min": -0.15504225314372116,
+  "max": 0.12639779606693982,
+  "palette": ["ff361d", "29ff54", "2409ff"]
+};
+
+
+var ALI = function(image) {
+  var qa = image.select('QA_PIXEL');
+  var cloud = qa.bitwiseAnd(1 << 5)
+    .and(qa.bitwiseAnd(1 << 7))
+    .or(qa.bitwiseAnd(1 << 3));
+
+  var ALI2 = image.mask().reduce(ee.Reducer.min());
+  return image.updateMask(cloud.not()).updateMask(ALI2).divide(10000).copyProperties(image, ["system:time_start"]);
+};
+
+function ALI3(image) {
+  var cloudShadowBitMask = 1 << 3;
+  var cloudsBitMask = 1 << 5;
+
+  var qa = image.select('QA_PIXEL');
+
+  var ALI4 = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+    .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000).copyProperties(image, ["system:time_start"]);
+}
+
+// Tracking 30 Years change detection in bajhang River.
+var startyear = 1990;
+var endyear = 2020;
+
+var years = ee.List.sequence(startyear, endyear);
+
+
+var l4rgb = ['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','QA_PIXEL'];
+var namesl4 = ['blue','green','red','nir','swir1','swir2','QA_PIXEL'];
+
+var l5rgb = ['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','QA_PIXEL'];
+var namesl5 = ['blue','green','red','nir','swir1','swir2','QA_PIXEL'];
+
+var l7rgb = ['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','QA_PIXEL'];
+var namesl7 = ['blue','green','red','nir','swir1','swir2','QA_PIXEL'];
+
+var l8rgb = ['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','QA_PIXEL'];
+var namesl8 = ['blue','green','red','nir','swir1','swir2','QA_PIXEL'];
+
+ 
+var image1 = ee.ImageCollection("LANDSAT/LT04/C02/T1_L2")
+  .filterDate('1982-08-22', '1993-06-24')
+  .filterBounds(river)
+  .select(l4rgb, namesl4)
+  .map(ALI);
+
+var image2 = ee.ImageCollection("LANDSAT/LT05/C02/T1_L2")
+  .filterDate('1990-01-01', '2012-05-05')
+  .filterBounds(river)
+  .select(l5rgb, namesl5)
+  .map(ALI);
+
+var image3 = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+  .filterDate('2000-01-01', '2023-05-05')
+  .filterBounds(river)
+  .select(l7rgb, namesl7)
+  .map(ALI);
+
+var image4 = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+  .filterMetadata('CLOUD_COVER', 'less_than', 90)
+  .filterDate('2013-04-1', '2023-12-31')
+  .filterBounds(river)
+  .select(l8rgb, namesl8)
+  .map(ALI);
+
+var riverchange = image1.merge(image2).merge(image3).merge(image4);
+
+print(riverchange);
+
+
+var finalriverchange = ee.ImageCollection.fromImages(years.map(function (y) {
+  var annual = riverchange.filter(ee.Filter.calendarRange(y, y, 'year'))
+    .median().clip(river);
+  return annual.set('year', y);
+}));
+
+print(finalriverchange);
+
+
+years.getInfo().forEach(function(year) {
+  var img_year = finalriverchange.filter(ee.Filter.eq('year', year)).mosaic();
+  Map.addLayer(img_year, rgbVis, 'Landsat ' + year, false);
+});
+
+
+years.getInfo().forEach(function(year) {
+  var NDWI_year = finalriverchange.filter(ee.Filter.eq('year', year)).mosaic()
+    .normalizedDifference(['green', 'swir1']);
+  Map.addLayer(NDWI_year, ndVis, 'NDWI_' + year);
+});
+
+
+print(finalriverchange.first());
+
+print('analytic chart', river);
+
+
+
+var exportImage = function(image, name, region) {
+  Export.image.toDrive({
+    image: image,
+    description: name,
+    folder: 'riverchange in bajhang', 
+    region: region,
+    scale: 30, 
+    maxPixels: 1e13, 
+  });
+};
+
+// Designed code to export each layer dynamically
+years.getInfo().forEach(function(year) {
+  var img_year = finalriverchange.filter(ee.Filter.eq('year', year)).mosaic();
+  var name = 'Landsat_' + year;
+  exportImage(img_year, name, river);
+});
+
+
+years.getInfo().forEach(function(year) {
+  var NDWI_year = finalriverchange.filter(ee.Filter.eq('year', year)).mosaic()
+    .normalizedDifference(['green', 'swir1']);
+  var name = 'NDWI_' + year;
+  exportImage(NDWI_year, name, river);
+});
+
+
+
+var calculateNDWI = function(image) {
+  return image.normalizedDifference(['green', 'nir']).rename('NDWI');
+};
+
+
+var ndwi_collection = finalriverchange.map(calculateNDWI);
+
+
+var ndwiChart = ui.Chart.image.seriesByRegion({
+  imageCollection: ndwi_collection,
+  regions: river,
+  reducer: ee.Reducer.mean(),
+  scale: 1000,
+  xProperty: 'system:index', 
+  seriesProperty: 'system:index'
+}).setOptions({
+  title: 'Mean NDWI Over Time',
+  hAxis: {title: 'Image Index'},
+  vAxis: {title: 'NDWI'},
+  lineWidth: 2, 
+  pointSize: 3, 
+  lineDashStyle: 'Solid'
+});
+
+
+// Increase tile scale to reduce memory usage
+var chartOptions = ndwiChart.getOptions();
+chartOptions["tileScale"] = 64; 
+ndwiChart.setOptions(chartOptions);
+
+
+print(ndwiChart);
